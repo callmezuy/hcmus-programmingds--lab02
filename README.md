@@ -178,15 +178,16 @@ Mẹo tái tạo nhanh:
 ## 9. Project Structure
 
 ```
-data/
-  raw/                      # Dữ liệu thô (CSV)
-  processed/                # Numpy arrays (npy) đã xử lý
-notebooks/
-  01_data_exploration.ipynb # Phân tích khám phá dữ liệu
-  02_preprocessing.ipynb    # Tiền xử lý dữ liệu
-  03_modelling.ipynb        # UCF, MF-SGD, VectorizedALS, CV & so sánh
-requirements.txt            # Phụ thuộc Python
-README.md                   # Tài liệu dự án
+hcmus-programmingds--lab02/
+  data/
+    raw/                      # Dữ liệu thô (CSV)
+    processed/                # Numpy arrays (npy) đã xử lý
+  notebooks/
+    01_data_exploration.ipynb # Phân tích khám phá dữ liệu
+    02_preprocessing.ipynb    # Tiền xử lý dữ liệu
+    03_modelling.ipynb        # UCF, MF-SGD, VectorizedALS, CV & so sánh
+  requirements.txt            # Phụ thuộc Python
+  README.md                   # Tài liệu dự án
 ```
 
 ## 10. Challenges & Solutions
