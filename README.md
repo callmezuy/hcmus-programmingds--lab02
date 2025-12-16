@@ -75,13 +75,43 @@ Dữ liệu bao gồm các thông tin tương tác giữa người dùng và s�
 - Dự đoán dựa trên trung bình có trọng số của top-k neighbors đã đánh giá item.
 - Lý do chọn user-based thay vì item-based: số lượng item rất lớn → ma trận tương đồng item–item dễ vượt RAM; UCF thực dụng hơn làm baseline.
 
+"Implement bằng NumPy" (tóm tắt cách làm):
+- Tạo `UI` (Users × Items) từ tập train, các ô chưa có đánh giá là 0.
+- Cosine similarity thuần NumPy: `Sim = (UI @ UI.T) / (||UI_u|| · ||UI_v||)` với `norms = np.linalg.norm(UI, axis=1)` và `np.outer(norms, norms)`; đặt đường chéo bằng 0 bằng `np.fill_diagonal`.
+- Dự đoán toàn phần: `Pred = (Sim @ UI) / (|Sim| @ Mask)` với `Mask = (UI>0).astype(float)` để chỉ cộng các ô đã có rating.
+- Dự đoán theo cặp (không tạo full matrix): lấy cột item từ `UI`, lọc các "raters" bằng mask, dùng `np.argpartition` để chọn top-k theo từng cặp, rồi tính trung bình có trọng số bằng `np.einsum('kn,kn->n', topk_sims, topk_rates)`; nếu không có hàng xóm hợp lệ thì rơi về trung bình cột.
+
 ### 5.3. Matrix Factorization (MF)
 - MF-SGD: học `P` (Users × K), `Q` (Items × K) kèm bias toàn cục `μ`, `b_u`, `b_i`; cập nhật bằng gradient vector hóa; dự đoán được clip về [1,5].
+
+"Implement bằng NumPy" (MF-SGD – vector hóa):
+- Khởi tạo `P, Q ~ N(0, 0.01)`; `b_u, b_i = 0`; `μ = mean(ratings)`.
+- Không lặp từng quan sát; thay vào đó gom gradient theo user/item:
+  - Dự đoán batch: `pred = μ + b_u[u] + b_i[i] + einsum('nf,nf->n', P[u], Q[i])`.
+  - Sai số: `err = r - pred`.
+  - Gom gradient bias: `np.add.at(bu_grad, u, err)`, `np.add.at(bi_grad, i, err)`.
+  - Gom gradient cho `P, Q`: `np.add.at(P_grad, u, err[:,None]*Q[i])`, `np.add.at(Q_grad, i, err[:,None]*P[u])`.
+  - Regularization theo số lần xuất hiện: `counts_u = np.bincount(u, minlength=n_users)`, `counts_i = np.bincount(i, minlength=n_items)`; cập nhật `P, Q, b_u, b_i` bằng bước học `lr` và `reg` theo counts.
+- Dự đoán theo cặp: dùng `np.einsum('nf,nf->n', P[u], Q[i]) + μ + b_u[u] + b_i[i]` và `np.clip` về [1,5] nếu cần.
+
 - ALS (VectorizedALS): cập nhật toàn cục bằng công thức đóng:
   - `P ← R Q (Qᵀ Q + λ I)⁻¹`
   - `Q ← Rᵀ P (Pᵀ P + λ I)⁻¹`
   - Dự đoán: `⟨P_u, Q_i⟩ + μ`, có thể clip về [1,5].
 - Định hướng: ưu tiên latent-feature learning thay vì feature engineering thủ công; mở rộng hybrid khi có metadata.
+
+"Implement bằng NumPy" (ALS – vector hóa toàn cục):
+- Tạo ma trận dense `R` (Users × Items), trừ `μ` trên các ô có rating (`mask = (R!=0); R[mask] -= μ`).
+- Vòng lặp:
+  - Tính `QtQ = Q.T @ Q`; nghịch đảo có điều chuẩn: `inv_Q = inv(QtQ + λI)`.
+  - Cập nhật toàn cục: `P = R @ Q @ inv_Q`.
+  - Tính `PtP = P.T @ P`; `inv_P = inv(PtP + λI)`.
+  - Cập nhật toàn cục: `Q = R.T @ P @ inv_P`.
+- Dự đoán theo cặp: `einsum('ij,ij->i', P[users], Q[items]) + μ`; có thể `np.clip`.
+
+Ghi chú hiệu năng/bộ nhớ:
+- UCF và MF-SGD hoạt động tốt trên dữ liệu thưa vì tránh tạo ma trận item–item lớn hoặc lặp từng phần tử chậm.
+- Phiên bản ALS này dùng `R` dense để tối đa vector hóa; trên ma trận rất lớn cần cân nhắc dạng sparse hoặc giảm `K`/`n_iters`.
 
 ### 5.4. Đánh giá
 - Chỉ số lỗi: MAE, MSE, RMSE.
@@ -98,10 +128,10 @@ Dữ liệu bao gồm các thông tin tương tác giữa người dùng và s�
 ```bash
 # Tạo và kích hoạt môi trường ảo (Windows)
 python -m venv .venv
-. .venv\Scripts\activate
+.venv\Scripts\activate
 
-# Cài đặt phụ thuộc cho Lab02
-pip install -r Labs/Lab02/requirements.txt
+# Cài đặt dependencies
+pip install -r requirements.txt
 ```
 
 ## 7. Usage
@@ -125,9 +155,12 @@ pip install -r Labs/Lab02/requirements.txt
 - MF-SGD   → MAE ≈ 1.09 | MSE ≈ 2.39   | RMSE ≈ 1.54
 - ALS      → MAE ≈ 0.93 | MSE ≈ 1.37   | RMSE ≈ 1.17
 
-Nhận xét nhanh:
-- ALS cho kết quả tốt nhất; MF-SGD bám sát; UCF kém trên dữ liệu thưa.
-- Nên tinh chỉnh `n_factors`, `reg`, số vòng lặp; áp dụng clipping về [1,5].
+#### Insights
+- Hiệu năng theo thang điểm 1–5: RMSE ≈ 1.17 (ALS) cho thấy sai số trung bình khoảng ~1.17 điểm — đủ tốt cho nhiều tác vụ xếp hạng/ưu tiên sản phẩm, nhưng vẫn có khoảng nâng cấp bằng tinh chỉnh tham số hoặc cải thiện dữ liệu.
+- UCF trên dữ liệu thưa: Ma trận tương tác quá thưa khiến rất nhiều cặp (u,i) thiếu hàng xóm phù hợp; dự đoán trở nên lệch và phân tán, dẫn đến RMSE rất cao. Với bài toán quy mô lớn, UCF nên dùng như baseline tham chiếu, không phải phương pháp chính.
+- MF-SGD vs ALS: Cả hai đều tận dụng latent factors để khái quát hóa. ALS hội tụ nhanh, ổn định khi dùng cập nhật toàn cục; MF-SGD linh hoạt, dễ mở rộng thêm bias/regularization theo user/item.
+- Ảnh hưởng của tiền xử lý: Việc lọc user theo ngưỡng hoạt động (≥15 ratings) tăng mật độ giúp cả MF và ALS học tốt hơn. Chọn ngưỡng quá thấp làm tăng nhiễu; quá cao làm mất dữ liệu — cân bằng là quan trọng.
+- Thực dụng cho vận hành: Nếu cần tốc độ thử nghiệm, giảm `n_factors` hoặc `n_iters` (ALS) vẫn cho kết quả hợp lý; khi đánh giá cuối, tăng dần để đạt sai số thấp nhất.
 
 ### 8.2. Trực quan hóa
 
