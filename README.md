@@ -128,7 +128,7 @@ Ghi chú hiệu năng/bộ nhớ:
 ```bash
 # Tạo và kích hoạt môi trường ảo (Windows)
 python -m venv .venv
-.venv\Scripts\activate
+.venv/Scripts/activate
 
 # Cài đặt dependencies
 pip install -r requirements.txt
