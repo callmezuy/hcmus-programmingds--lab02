@@ -75,16 +75,16 @@ Dữ liệu bao gồm các thông tin tương tác giữa người dùng và s�
 - Dự đoán dựa trên trung bình có trọng số của top-k neighbors đã đánh giá item.
 - Lý do chọn user-based thay vì item-based: số lượng item rất lớn → ma trận tương đồng item–item dễ vượt RAM; UCF thực dụng hơn làm baseline.
 
-"Implement bằng NumPy" (tóm tắt cách làm):
+Implement bằng NumPy:
 - Tạo `UI` (Users × Items) từ tập train, các ô chưa có đánh giá là 0.
 - Cosine similarity thuần NumPy: `Sim = (UI @ UI.T) / (||UI_u|| · ||UI_v||)` với `norms = np.linalg.norm(UI, axis=1)` và `np.outer(norms, norms)`; đặt đường chéo bằng 0 bằng `np.fill_diagonal`.
 - Dự đoán toàn phần: `Pred = (Sim @ UI) / (|Sim| @ Mask)` với `Mask = (UI>0).astype(float)` để chỉ cộng các ô đã có rating.
 - Dự đoán theo cặp (không tạo full matrix): lấy cột item từ `UI`, lọc các "raters" bằng mask, dùng `np.argpartition` để chọn top-k theo từng cặp, rồi tính trung bình có trọng số bằng `np.einsum('kn,kn->n', topk_sims, topk_rates)`; nếu không có hàng xóm hợp lệ thì rơi về trung bình cột.
 
 ### 5.3. Matrix Factorization (MF)
-- MF-SGD: học `P` (Users × K), `Q` (Items × K) kèm bias toàn cục `μ`, `b_u`, `b_i`; cập nhật bằng gradient vector hóa; dự đoán được clip về [1,5].
+a) MF-SGD: học `P` (Users × K), `Q` (Items × K) kèm bias toàn cục `μ`, `b_u`, `b_i`; cập nhật bằng gradient vector hóa; dự đoán được clip về [1,5].
 
-"Implement bằng NumPy" (MF-SGD – vector hóa):
+Implement bằng NumPy (MF-SGD – vector hóa):
 - Khởi tạo `P, Q ~ N(0, 0.01)`; `b_u, b_i = 0`; `μ = mean(ratings)`.
 - Không lặp từng quan sát; thay vào đó gom gradient theo user/item:
   - Dự đoán batch: `pred = μ + b_u[u] + b_i[i] + einsum('nf,nf->n', P[u], Q[i])`.
@@ -94,13 +94,13 @@ Dữ liệu bao gồm các thông tin tương tác giữa người dùng và s�
   - Regularization theo số lần xuất hiện: `counts_u = np.bincount(u, minlength=n_users)`, `counts_i = np.bincount(i, minlength=n_items)`; cập nhật `P, Q, b_u, b_i` bằng bước học `lr` và `reg` theo counts.
 - Dự đoán theo cặp: dùng `np.einsum('nf,nf->n', P[u], Q[i]) + μ + b_u[u] + b_i[i]` và `np.clip` về [1,5] nếu cần.
 
-- ALS (VectorizedALS): cập nhật toàn cục bằng công thức đóng:
+b) ALS (VectorizedALS): cập nhật toàn cục bằng công thức đóng:
   - `P ← R Q (Qᵀ Q + λ I)⁻¹`
   - `Q ← Rᵀ P (Pᵀ P + λ I)⁻¹`
   - Dự đoán: `⟨P_u, Q_i⟩ + μ`, có thể clip về [1,5].
 - Định hướng: ưu tiên latent-feature learning thay vì feature engineering thủ công; mở rộng hybrid khi có metadata.
 
-"Implement bằng NumPy" (ALS – vector hóa toàn cục):
+Implement bằng NumPy (ALS – vector hóa toàn cục):
 - Tạo ma trận dense `R` (Users × Items), trừ `μ` trên các ô có rating (`mask = (R!=0); R[mask] -= μ`).
 - Vòng lặp:
   - Tính `QtQ = Q.T @ Q`; nghịch đảo có điều chuẩn: `inv_Q = inv(QtQ + λI)`.
@@ -179,14 +179,14 @@ Mẹo tái tạo nhanh:
 
 ```
 data/
-  raw/                    # Dữ liệu thô (CSV)
-  processed/              # Numpy arrays (npy) đã xử lý
+  raw/                      # Dữ liệu thô (CSV)
+  processed/                # Numpy arrays (npy) đã xử lý
 notebooks/
-  01_data_exploration.ipynb
-  02_preprocessing.ipynb
-  03_modelling.ipynb      # UCF, MF-SGD, VectorizedALS, CV & so sánh
-requirements.txt          # Phụ thuộc Python
-README.md                 # Tài liệu dự án
+  01_data_exploration.ipynb # Phân tích khám phá dữ liệu
+  02_preprocessing.ipynb    # Tiền xử lý dữ liệu
+  03_modelling.ipynb        # UCF, MF-SGD, VectorizedALS, CV & so sánh
+requirements.txt            # Phụ thuộc Python
+README.md                   # Tài liệu dự án
 ```
 
 ## 10. Challenges & Solutions
