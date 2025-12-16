@@ -2,25 +2,23 @@
 
 ## 1\. Tổng quan dự án
 
-Dự án này xây dựng một hệ thống gợi ý sản phẩm (Recommendation System) cho ngành hàng **Beauty Products** trên Amazon. Điểm đặc biệt của dự án là việc **implement toàn bộ quy trình từ con số 0 chỉ sử dụng thư viện NumPy**.
+Dự án này xây dựng một hệ thống gợi ý sản phẩm (Recommendation System) cho ngành hàng **Beauty Products** trên Amazon. Điểm đặc biệt của dự án là việc **implement toàn bộ quy trình chỉ sử dụng thư viện NumPy**.
 
 Dự án không sử dụng Pandas hay các Framework Deep Learning, nhằm mục tiêu tối ưu hóa khả năng tư duy đại số tuyến tính, kỹ thuật vectorization và xử lý ma trận thưa (Sparse Matrix) để giải quyết bài toán gợi ý sản phẩm thực tế.
 
 ## 2\. Mục lục
 
-1.  Project Overview
-2.  Table of Contents
-3.  Introduction
-4.  Dataset Overview
-5.  Method (Quy trình & Thuật toán) *(To be updated)*
-6.  Installation & Setup *(To be updated)*
-7.  Usage *(To be updated)*
-8.  Results *(To be updated)*
-9.  Project Structure *(To be updated)*
-10. Challenges & Solutions *(To be updated)*
-11. Future Improvements *(To be updated)*
-12. Contributors *(To be updated)*
-13. License *(To be updated)*
+1.  [Tổng quan dự án](#1-tổng-quan-dự-án)
+2.  [Mục lục](#2-mục-lục)
+3.  [Giới thiệu](#3-giới-thiệu)
+4.  [Dataset](#4-dataset)
+5.  [Method (Quy trình & Thuật toán)](#5-method-quy-trình--thuật-toán)
+6.  [Installation & Setup](#6-installation--setup)
+7.  [Usage](#7-usage)
+8.  [Results](#8-results)
+9.  [Project Structure](#9-project-structure)
+10. [Challenges & Solutions](#10-challenges--solutions)
+11. [Future Improvements](#11-future-improvements)
 
 ## 3\. Giới thiệu
 
@@ -61,3 +59,112 @@ Dữ liệu bao gồm các thông tin tương tác giữa người dùng và s�
 
   * **Sparsity (Độ thưa):** Ma trận tương tác rất thưa (Sparse), vì một người dùng chỉ đánh giá một phần rất nhỏ trong tổng số hàng triệu sản phẩm. Đây là thách thức chính khi lưu trữ và tính toán bằng NumPy array thông thường.
   * **Format:** Dữ liệu đầu vào là file CSV/JSON, yêu cầu kỹ thuật tiền xử lý để chuyển đổi (Encoding) từ chuỗi (ID) sang chỉ số (Index) số học để tính toán.
+
+## 5. Method (Quy trình & Thuật toán)
+
+### 5.1. Tiền xử lý dữ liệu
+- Nạp dữ liệu thô từ `../data/raw/ratings_Beauty.csv` bằng `numpy.genfromtxt(..., skip_header=1)`; tách cột `user_id`, `product_id (ASIN)`, `rating`.
+- Khảo sát ngưỡng lọc mức độ hoạt động của user: thử các ngưỡng `[5, 10, 15, 20, 25, 30, 50]`, trực quan hóa trade-off giữa `Density (%)`, số `Users` còn lại và số `Ratings` còn lại. Chọn ngưỡng tối ưu `15` (cân bằng giữa tăng mật độ và giữ dữ liệu).
+- Lọc lại dữ liệu chỉ giữ user có ≥ 15 ratings; mã hóa ID sang chỉ số liên tục với `np.unique(..., return_inverse=True)` để thu được `user_indices`, `product_indices`, `final_ratings` và bảng tra cứu `unique_users_final`, `unique_products_final`.
+- Tính kích thước ma trận cuối: `n_users`, `n_items`, cùng mật độ (`density`) sau lọc; trong lần chạy minh họa, mật độ tăng lên khoảng `~0.0488%` (từ ~0.0074%).
+- Lưu 5 tệp vào `../data/processed/` để dùng cho bước mô hình: `user_indices.npy`, `product_indices.npy`, `ratings.npy` (tương ứng `final_ratings`), `user_ids_map.npy`, `product_ids_map.npy`.
+- Notebook `03_modelling.ipynb` đọc các tệp này và thực hiện chia `train/test` 80/20 (seed 42) trước khi huấn luyện các mô hình.
+
+### 5.2. Baseline: User-based Collaborative Filtering (UCF)
+- Tính ma trận tương đồng user-user bằng Cosine Similarity.
+- Dự đoán dựa trên trung bình có trọng số của top-k neighbors đã đánh giá item.
+- Lý do chọn user-based thay vì item-based: số lượng item rất lớn → ma trận tương đồng item–item dễ vượt RAM; UCF thực dụng hơn làm baseline.
+
+### 5.3. Matrix Factorization (MF)
+- MF-SGD: học `P` (Users × K), `Q` (Items × K) kèm bias toàn cục `μ`, `b_u`, `b_i`; cập nhật bằng gradient vector hóa; dự đoán được clip về [1,5].
+- ALS (VectorizedALS): cập nhật toàn cục bằng công thức đóng:
+  - `P ← R Q (Qᵀ Q + λ I)⁻¹`
+  - `Q ← Rᵀ P (Pᵀ P + λ I)⁻¹`
+  - Dự đoán: `⟨P_u, Q_i⟩ + μ`, có thể clip về [1,5].
+- Định hướng: ưu tiên latent-feature learning thay vì feature engineering thủ công; mở rộng hybrid khi có metadata.
+
+### 5.4. Đánh giá
+- Chỉ số lỗi: MAE, MSE, RMSE.
+- Cross Validation: 5-Fold trên toàn bộ (u, i, r) để đo khả năng tổng quát hóa.
+
+## 6. Installation & Setup
+
+### 6.1. Yêu cầu môi trường
+- Python 3.10+
+- NumPy (và tùy chọn: Matplotlib/Seaborn cho trực quan)
+
+### 6.2. Cài đặt môi trường (khuyến nghị venv)
+
+```bash
+# Tạo và kích hoạt môi trường ảo (Windows)
+python -m venv .venv
+. .venv\Scripts\activate
+
+# Cài đặt phụ thuộc cho Lab02
+pip install -r Labs/Lab02/requirements.txt
+```
+
+## 7. Usage
+
+### 7.1. Chạy các notebook
+- Phân tích khám phá dữ liệu: mở và chạy `notebooks/01_data_exploration.ipynb`.
+- Tiền xử lý: mở và chạy `notebooks/02_preprocessing.ipynb`.
+- Mô hình & đánh giá: mở và chạy `notebooks/03_modelling.ipynb`.
+
+### 7.2. Cấu hình nhanh trong notebook 03
+- Điều chỉnh các tham số:
+  - UCF: `k` (số hàng xóm).
+  - MF-SGD: `n_factors`, `lr`, `reg`, `n_epochs`, `clip`.
+  - VectorizedALS: `n_factors`, `reg`, `n_iters`.
+- Bật 5-Fold CV để so sánh ba mô hình.
+
+## 8. Results
+
+### 8.1. Kết quả minh họa (5-Fold CV)
+- User-CF  → MAE ≈ 5.71 | MSE ≈ 375.92 | RMSE ≈ 19.38
+- MF-SGD   → MAE ≈ 1.09 | MSE ≈ 2.39   | RMSE ≈ 1.54
+- ALS      → MAE ≈ 0.93 | MSE ≈ 1.37   | RMSE ≈ 1.17
+
+Nhận xét nhanh:
+- ALS cho kết quả tốt nhất; MF-SGD bám sát; UCF kém trên dữ liệu thưa.
+- Nên tinh chỉnh `n_factors`, `reg`, số vòng lặp; áp dụng clipping về [1,5].
+
+### 8.2. Trực quan hóa
+
+Biểu đồ được sinh tự động từ notebook `notebooks/03_modelling.ipynb` và lưu tại thư mục `figures/`:
+
+![So sánh MAE & RMSE](figures/bar_metrics.png)
+
+![Actual vs Predicted (ALS)](figures/scatter_actual_vs_pred_best.png)
+
+Mẹo tái tạo nhanh:
+
+- Chạy các cell đánh giá mô hình ở phần 6 để có `predictions_*` và các chỉ số.
+- Chạy cell "Trực quan hoá kết quả (Visualization)" ở cuối notebook để sinh ảnh.
+
+## 9. Project Structure
+
+```
+data/
+  raw/                    # Dữ liệu thô (CSV)
+  processed/              # Numpy arrays (npy) đã xử lý
+notebooks/
+  01_data_exploration.ipynb
+  02_preprocessing.ipynb
+  03_modelling.ipynb      # UCF, MF-SGD, VectorizedALS, CV & so sánh
+requirements.txt          # Phụ thuộc Python
+README.md                 # Tài liệu dự án
+```
+
+## 10. Challenges & Solutions
+- Độ thưa cao: dùng latent-feature learning (MF) để khái quát hóa; hạn chế phụ thuộc vào hàng xóm trực tiếp.
+- Bộ nhớ: tránh ma trận tương đồng item–item; dùng VectorizedALS và tham số vừa phải (`n_factors`, `n_iters`).
+- Tối ưu tốc độ: vector hóa NumPy; giảm số vòng lặp cho thử nghiệm; có thể dùng Cholesky/giải pháp đóng.
+- Đánh giá đáng tin cậy: 5-Fold CV để giảm lệch chia tập.
+
+## 11. Future Improvements
+- Thêm ranking metrics: Precision@K, Recall@K, NDCG@K cho gợi ý top-N.
+- Hybrid models: kết hợp metadata item/user (nếu có) với MF (Factorization Machines/SVD++).
+- Early stopping & validation: chọn siêu tham số bằng tập validation riêng.
+- Sparse optimizations: chuyển sang dạng thưa cho R khi kích thước cực lớn; cân nhắc thư viện tối ưu hóa.
+
